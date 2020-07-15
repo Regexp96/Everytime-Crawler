@@ -9,6 +9,8 @@ import csv
 from datetime import datetime, timedelta
 from selenium.common.exceptions import TimeoutException
 
+# todo 날짜별로 구분해서 크롤링 가능하게
+
 
 options = webdriver.ChromeOptions()
 options.add_argument('headless')
@@ -24,24 +26,45 @@ driver.find_element_by_name('userid').send_keys(id)
 driver.find_element_by_name('password').send_keys(pw)
 driver.find_element_by_class_name('submit').click()
 
+start_date = input('date to start(2020-01-01): ')
+s_year, s_month, s_day = map(int, start_date.split('-'))
+start_datetime = datetime(s_year, s_month, s_day)
+end_date = input('date to end(2020-01-01): ')
+e_year, e_month, e_day = map(int, end_date.split('-'))
+end_datetime = datetime(e_year, e_month, e_day)
+
+# 테스트용
+driver.find_element_by_name('userid').send_keys(id)
+driver.find_element_by_name('password').send_keys(pw)
+driver.find_element_by_class_name('submit').click()
+s_year, s_month, s_day = map(int, start_date.split('-'))
+start_datetime = datetime(s_year, s_month, s_day)
+e_year, e_month, e_day = map(int, end_date.split('-'))
+end_datetime = datetime(e_year, e_month, e_day)
+post_datetime = None
+
 
 def make_link():
     page = 1
     links = []
     start_time = time.time()
-    while True:
-        driver.get('https://daejin.everytime.kr/384377/p/'+str(page))
+
+    is_loop_end = False
+    while not is_loop_end:
+        driver.get('https://daejin.everytime.kr/384377/p/' + str(page))
         try:
             WebDriverWait(driver, 200).until(EC.presence_of_all_elements_located((By.ID, "writeArticleButton")))
         except TimeoutException:
             continue
         req = driver.page_source
         soup = BeautifulSoup(req, 'html.parser')
-        linkList = soup.findAll("a", href=re.compile("(\/384377\/v\/........)"))
-        # 마지막 페이지인지 확인
-        if len(linkList) < 20:
-            break
+        # todo time 태그 찾아서 오늘 날짜 이후로 일주일 단위 검색
 
+        linkList = soup.findAll("a", href=re.compile("(\/384377\/v\/........)"))
+        # # 마지막 페이지인지 확인
+        # if len(linkList) < 20:
+        #     break
+        #
         # 테스트용
         # if page == 4:
         #     break
@@ -50,11 +73,53 @@ def make_link():
             links.append(link.attrs['href'])
         print(page)
 
+
+
         # 한번에 한페이지씩 크롤링하기 위해 추가
-        while True:
-            if not links:
-                break
-            crawling(links.pop())
+        now = datetime(datetime.today().year, datetime.today().month, datetime.today().day)
+        for find_time in soup.findAll("time"):
+            if '분 전' in find_time.text or '방금' in find_time.text:
+                # 오늘 날짜에 올라온 데이터
+                post_datetime = now
+                now = post_datetime
+            elif len(find_time.text) == 11:
+                p_month, p_day = map(int, find_time.text[0:5].split('/'))
+                post_datetime = datetime(2020, p_month, p_day)
+                now = post_datetime
+            else:
+                p_year, p_month, p_day = map(int, find_time.text[0:9].split('/'))
+                post_datetime = datetime(p_year, p_month, p_day)
+                now = post_datetime
+            if now <= start_datetime:
+                if '분 전' in find_time.text or '방금' in find_time.text:
+                    # 오늘 날짜에 올라온 데이터
+                    post_datetime = now
+                    crawling(links.pop())
+                else:
+                    p_month, p_day = map(int, find_time.text[0:5].split('/'))
+                    post_datetime = datetime(2020, p_month, p_day)
+                    now = post_datetime
+                    crawling(links.pop())
+
+
+            # elif now > start_datetime:
+            #     pass
+            #     if len(find_time.text) == 11:
+            #         p_month, p_day = map(int, find_time.text[0:5].split('/'))
+            #         post_datetime = datetime(2020, p_month, p_day)
+            #         print(p_month, p_day)
+            #     else:
+            #         p_year, p_month, p_day = map(int, find_time.text[0:9].split('/'))
+            #         post_datetime = datetime(p_year, p_month, p_day)
+            #     crawling(links.pop())
+            if post_datetime is not None:
+                if post_datetime < end_datetime:
+                    is_loop_end = True
+        # while True:
+        #
+        #     if not links:
+        #         break
+        # crawling(links.pop())
 
         if time.time() - start_time > 3600:
             driver.delete_all_cookies()
@@ -84,10 +149,10 @@ def crawling(link):
         time_to_int = int(re.findall('\d+', title_time)[0])
         now = datetime.now()
         after = now + timedelta(minutes=-time_to_int)
-        title_time = str(after.month)+'/'+str(after.day)+' '+str(after.hour)+':'+str(after.minute)
+        title_time = str(after.month) + '/' + str(after.day) + ' ' + str(after.hour) + ':' + str(after.minute)
     elif '방금' in title_time:
         now = datetime.now()
-        title_time = str(now.month)+'/'+str(now.day)+' '+str(now.hour)+':'+str(now.minute)
+        title_time = str(now.month) + '/' + str(now.day) + ' ' + str(now.hour) + ':' + str(now.minute)
 
     title = soup.find('div', {'class': 'wrap articles'}).article.h2.text
     writeCSV('title', title, title_time)
